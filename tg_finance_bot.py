@@ -4,7 +4,7 @@ import requests
 import logging
 
 # URL Google Apps Script
-GAS_URL = "https://script.google.com/macros/s/ВАШ_СКРИПТ_ID/exec"
+GAS_URL = "https://script.google.com/macros/s/AKfycbwFih7SoHRVE2dIVFCgxXoUrQmPDhnnTuQ8rVH9EQ1CvPbZ72b9LDGmnfZH3BMrJ0NN/exec"
 
 # Логирование
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
@@ -61,7 +61,7 @@ async def cancel(update: Update, context: CallbackContext):
 
 # Запуск бота
 def main():
-    app = Application.builder().token("ВАШ_ТОКЕН_БОТА").build()
+    app = Application.builder().token("7697444585:AAGcna4h-eGa-89UCTfG9XL4EGI-ujj0QWs").build()
 
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
