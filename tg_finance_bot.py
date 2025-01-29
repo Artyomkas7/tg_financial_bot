@@ -1,7 +1,7 @@
 import logging
 import requests
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, ConversationHandler, CallbackContext
+from telegram.ext import Updater, CommandHandler, MessageHandler, filters, ConversationHandler, CallbackContext
 # URL Google Apps Script
 GAS_URL = "https://script.google.com/macros/s/AKfycbzp_nqb_UuGN2gV6f_QhWP0O4AFEa9g_MQWneFt4icDd8zf9-i6-AlQbUFi0XMxyWZg/exec"
 # Логирование
