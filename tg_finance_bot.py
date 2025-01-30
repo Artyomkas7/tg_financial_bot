@@ -14,11 +14,12 @@ driver_config = ydb.DriverConfig(
 print(driver_config)
 with ydb.Driver(driver_config) as driver:
     try:
-        driver.wait(timeout=15)
+        driver.wait(timeout=20)
     except TimeoutError:
         print("Connect failed to YDB")
         print("Last reported errors by discovery:")
         print(driver.discovery_debug_details())
+pool = ydb.SessionPool(driver)
 
 # Определение состояний для пошагового ввода данных
 TYPE, SUM, ACCOUNT, CATEGORY, DESIRABILITY, UNDESIRED_AMOUNT, DESCRIPTION, CONFIRM = range(8)
