@@ -1,13 +1,13 @@
 from telegram import ReplyKeyboardMarkup, Update
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, ConversationHandler, CallbackContext
+from telegram.ext import Updater, CommandHandler, MessageHandler, filters, ConversationHandler, CallbackContext
 import ydb
 import ydb.iam
 import uuid
 from datetime import datetime
 
 # Подключение к YDB
-ENDPOINT = "grpcs://your-database-name.ydb.yandexcloud.net:2135"
-DATABASE = "/ru-central1/b1gXXXXXXXXX/your-db"
+ENDPOINT = "grpcs://ydb.serverless.yandexcloud.net:2135/?database=/ru-central1/b1g86rbv28go73jml91a/etnv8re60doc9qg4iglk"
+DATABASE = "/ru-central1/b1g86rbv28go73jml91a/etnv8re60doc9qg4iglk"
 
 driver = ydb.Driver(endpoint=ENDPOINT, database=DATABASE, credentials=ydb.iam.MetadataUrlCredentials())
 driver.wait(fail_fast=True, timeout=5)
@@ -153,22 +153,22 @@ def save_transaction(update: Update, context: CallbackContext):
 
 # Определение обработчиков диалогов
 conv_handler = ConversationHandler(
-    entry_points=[CommandHandler("start", start), MessageHandler(Filters.regex("Записать операцию"), start)],
+    entry_points=[CommandHandler("start", start), MessageHandler(filters.regex("Записать операцию"), start)],
     states={
-        TYPE: [MessageHandler(Filters.text, get_type)],
-        SUM: [MessageHandler(Filters.text, get_sum)],
-        ACCOUNT: [MessageHandler(Filters.text, get_account)],
-        CATEGORY: [MessageHandler(Filters.text, get_category)],
-        DESIRABILITY: [MessageHandler(Filters.text, get_desirability)],
-        UNDESIRED_AMOUNT: [MessageHandler(Filters.text, get_undesired_amount)],
-        DESCRIPTION: [MessageHandler(Filters.text, get_description)],
-        CONFIRM: [MessageHandler(Filters.regex("Подтвердить"), save_transaction)],
+        TYPE: [MessageHandler(filters.text, get_type)],
+        SUM: [MessageHandler(filters.text, get_sum)],
+        ACCOUNT: [MessageHandler(filters.text, get_account)],
+        CATEGORY: [MessageHandler(filters.text, get_category)],
+        DESIRABILITY: [MessageHandler(filters.text, get_desirability)],
+        UNDESIRED_AMOUNT: [MessageHandler(filters.text, get_undesired_amount)],
+        DESCRIPTION: [MessageHandler(filters.text, get_description)],
+        CONFIRM: [MessageHandler(filters.regex("Подтвердить"), save_transaction)],
     },
     fallbacks=[]
 )
 
 # Запуск бота
-updater = Updater("YOUR_TELEGRAM_BOT_TOKEN", use_context=True)
+updater = Updater("7697444585:AAGcna4h-eGa-89UCTfG9XL4EGI-ujj0QWs", use_context=True)
 dp = updater.dispatcher
 dp.add_handler(conv_handler)
 updater.start_polling()
