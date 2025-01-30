@@ -1,81 +1,175 @@
-from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ConversationHandler, CallbackContext
-import requests
-import logging
+from telegram import ReplyKeyboardMarkup, Update
+from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, ConversationHandler, CallbackContext
+import ydb
+import ydb.iam
+import uuid
+from datetime import datetime
 
-# URL Google Apps Script
-GAS_URL = "https://script.google.com/macros/s/AKfycbwFih7SoHRVE2dIVFCgxXoUrQmPDhnnTuQ8rVH9EQ1CvPbZ72b9LDGmnfZH3BMrJ0NN/exec"
+# Подключение к YDB
+ENDPOINT = "grpcs://your-database-name.ydb.yandexcloud.net:2135"
+DATABASE = "/ru-central1/b1gXXXXXXXXX/your-db"
 
-# Логирование
-logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
+driver = ydb.Driver(endpoint=ENDPOINT, database=DATABASE, credentials=ydb.iam.MetadataUrlCredentials())
+driver.wait(fail_fast=True, timeout=5)
+pool = ydb.SessionPool(driver)
 
-# Этапы диалога
-SUM, CATEGORY, OPERATION_TYPE = range(3)
+# Определение состояний для пошагового ввода данных
+TYPE, SUM, ACCOUNT, CATEGORY, DESIRABILITY, UNDESIRED_AMOUNT, DESCRIPTION, CONFIRM = range(8)
 
+user_data = {}
 
-# Команда /start
-async def start(update: Update, context: CallbackContext):
-    await update.message.reply_text("Привет! Введите сумму:")
+# Команда /start с кнопкой "Записать операцию"
+def start(update: Update, context: CallbackContext):
+    keyboard = [["Записать операцию"]]
+    reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+    update.message.reply_text("Добро пожаловать! Нажмите кнопку, чтобы начать запись операции.", reply_markup=reply_markup)
+    return TYPE
+
+# Выбор дохода или расхода
+def get_type(update: Update, context: CallbackContext):
+    operation_type = update.message.text
+    user_data[update.message.chat_id] = {"type": operation_type}
+    update.message.reply_text("Введите сумму:")
     return SUM
 
+# Ввод суммы (с автоматическим знаком)
+def get_sum(update: Update, context: CallbackContext):
+    try:
+        amount = float(update.message.text)
+        if user_data[update.message.chat_id]["type"] == "Расход":
+            amount = -abs(amount)
+        else:
+            amount = abs(amount)
 
-# Ввод суммы
-async def get_sum(update: Update, context: CallbackContext):
-    context.user_data["sum"] = update.message.text
-    keyboard = [["Еда", "Транспорт"], ["Развлечения", "Другое"]]
-    reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
-    await update.message.reply_text("Выберите категорию:", reply_markup=reply_markup)
-    return CATEGORY
+        user_data[update.message.chat_id]["amount"] = amount
+        update.message.reply_text("Выберите счет списания:", reply_markup=ReplyKeyboardMarkup(
+            [["Карта", "Наличные", "Добавить новый"]], one_time_keyboard=True))
+        return ACCOUNT
+    except ValueError:
+        update.message.reply_text("Введите корректную сумму.")
+        return SUM
 
+# Выбор счета
+def get_account(update: Update, context: CallbackContext):
+    account = update.message.text
+    if account == "Добавить новый":
+        update.message.reply_text("Введите название нового счета:")
+        return ACCOUNT
+    else:
+        user_data[update.message.chat_id]["account"] = account
+        update.message.reply_text("Выберите категорию:", reply_markup=ReplyKeyboardMarkup(
+            [["Еда", "Транспорт", "Добавить новую"]], one_time_keyboard=True))
+        return CATEGORY
 
 # Выбор категории
-async def get_category(update: Update, context: CallbackContext):
-    context.user_data["category"] = update.message.text
-    keyboard = [["Доход", "Расход"]]
-    reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
-    await update.message.reply_text("Выберите тип операции:", reply_markup=reply_markup)
-    return OPERATION_TYPE
+def get_category(update: Update, context: CallbackContext):
+    category = update.message.text
+    if category == "Добавить новую":
+        update.message.reply_text("Введите название новой категории:")
+        return CATEGORY
+    else:
+        user_data[update.message.chat_id]["category"] = category
+        update.message.reply_text("Расход желательный или нежелательный?", reply_markup=ReplyKeyboardMarkup(
+            [["Желательный", "Нежелательный"]], one_time_keyboard=True))
+        return DESIRABILITY
 
+# Желательность расхода
+def get_desirability(update: Update, context: CallbackContext):
+    desirability = update.message.text
+    user_data[update.message.chat_id]["desirability"] = desirability
+    if desirability == "Нежелательный":
+        update.message.reply_text("Введите сумму нежелательного расхода:")
+        return UNDESIRED_AMOUNT
+    else:
+        return ask_description(update)
 
-# Запись в Google Таблицу
-async def get_operation_type(update: Update, context: CallbackContext):
-    context.user_data["operation_type"] = update.message.text
+# Ввод нежелательной суммы
+def get_undesired_amount(update: Update, context: CallbackContext):
+    try:
+        undesired_amount = float(update.message.text)
+        user_data[update.message.chat_id]["undesired_amount"] = undesired_amount
+        return ask_description(update)
+    except ValueError:
+        update.message.reply_text("Введите корректную сумму.")
+        return UNDESIRED_AMOUNT
 
-    # Отправляем данные в Google Apps Script
-    data = {
-        "sum": context.user_data["sum"],
-        "category": context.user_data["category"],
-        "type": context.user_data["operation_type"]
-    }
-    response = requests.post(GAS_URL, json=data)
+# Запрос на добавление описания
+def ask_description(update: Update):
+    update.message.reply_text("Добавить описание или оставить без описания?", reply_markup=ReplyKeyboardMarkup(
+        [["Добавить", "Без описания"]], one_time_keyboard=True))
+    return DESCRIPTION
 
-    await update.message.reply_text(response.text, reply_markup=ReplyKeyboardRemove())
+# Ввод описания
+def get_description(update: Update, context: CallbackContext):
+    description = update.message.text
+    if description == "Добавить":
+        update.message.reply_text("Введите описание:")
+        return DESCRIPTION
+    else:
+        user_data[update.message.chat_id]["description"] = ""
+        return confirm_data(update)
+
+# Подтверждение данных
+def confirm_data(update: Update):
+    chat_id = update.message.chat_id
+    data = user_data.get(chat_id, {})
+
+    text = f"""
+    Подтвердите данные:
+    Сумма: {data['amount']}
+    Счет: {data['account']}
+    Категория: {data['category']}
+    Желательность: {data['desirability']}
+    Нежелательная сумма: {data.get('undesired_amount', 0)}
+    Описание: {data.get('description', '')}
+    """
+
+    update.message.reply_text(text, reply_markup=ReplyKeyboardMarkup(
+        [["Подтвердить", "Отмена"]], one_time_keyboard=True))
+    return CONFIRM
+
+# Сохранение данных в YDB
+def save_transaction(update: Update, context: CallbackContext):
+    chat_id = update.message.chat_id
+    data = user_data.get(chat_id, {})
+
+    transaction_id = str(uuid.uuid4())
+    created_at = int(datetime.utcnow().timestamp() * 1_000_000)
+
+    def execute_query(session):
+        session.transaction().execute(
+            """
+            INSERT INTO transactions (user_id, transaction_id, date, amount, account, category, type, desirability, undesired_amount, description)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (chat_id, transaction_id, created_at, data['amount'], data['account'], data['category'], data['type'],
+             data['desirability'], data.get('undesired_amount', 0), data.get('description', '')),
+            commit_tx=True
+        )
+
+    pool.retry_operation_sync(execute_query)
+    update.message.reply_text("Операция сохранена!")
     return ConversationHandler.END
 
-
-# Команда /cancel
-async def cancel(update: Update, context: CallbackContext):
-    await update.message.reply_text("Операция отменена.", reply_markup=ReplyKeyboardRemove())
-    return ConversationHandler.END
-
+# Определение обработчиков диалогов
+conv_handler = ConversationHandler(
+    entry_points=[CommandHandler("start", start), MessageHandler(Filters.regex("Записать операцию"), start)],
+    states={
+        TYPE: [MessageHandler(Filters.text, get_type)],
+        SUM: [MessageHandler(Filters.text, get_sum)],
+        ACCOUNT: [MessageHandler(Filters.text, get_account)],
+        CATEGORY: [MessageHandler(Filters.text, get_category)],
+        DESIRABILITY: [MessageHandler(Filters.text, get_desirability)],
+        UNDESIRED_AMOUNT: [MessageHandler(Filters.text, get_undesired_amount)],
+        DESCRIPTION: [MessageHandler(Filters.text, get_description)],
+        CONFIRM: [MessageHandler(Filters.regex("Подтвердить"), save_transaction)],
+    },
+    fallbacks=[]
+)
 
 # Запуск бота
-def main():
-    app = Application.builder().token("7697444585:AAGcna4h-eGa-89UCTfG9XL4EGI-ujj0QWs").build()
-
-    conv_handler = ConversationHandler(
-        entry_points=[CommandHandler("start", start)],
-        states={
-            SUM: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_sum)],
-            CATEGORY: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_category)],
-            OPERATION_TYPE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_operation_type)],
-        },
-        fallbacks=[CommandHandler("cancel", cancel)],
-    )
-
-    app.add_handler(conv_handler)
-    app.run_polling()
-
-
-if __name__ == "__main__":
-    main()
+updater = Updater("YOUR_TELEGRAM_BOT_TOKEN", use_context=True)
+dp = updater.dispatcher
+dp.add_handler(conv_handler)
+updater.start_polling()
+updater.idle()
