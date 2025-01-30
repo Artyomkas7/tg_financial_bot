@@ -11,14 +11,14 @@ driver_config = ydb.DriverConfig(
         credentials=ydb.credentials_from_env_variables(),
         root_certificates=ydb.load_ydb_root_certificate(),
     )
-    print(driver_config)
-    with ydb.Driver(driver_config) as driver:
-        try:
-            driver.wait(timeout=15)
-        except TimeoutError:
-            print("Connect failed to YDB")
-            print("Last reported errors by discovery:")
-            print(driver.discovery_debug_details())
+print(driver_config)
+with ydb.Driver(driver_config) as driver:
+    try:
+        driver.wait(timeout=15)
+    except TimeoutError:
+        print("Connect failed to YDB")
+        print("Last reported errors by discovery:")
+        print(driver.discovery_debug_details())
 
 # Определение состояний для пошагового ввода данных
 TYPE, SUM, ACCOUNT, CATEGORY, DESIRABILITY, UNDESIRED_AMOUNT, DESCRIPTION, CONFIRM = range(8)
