@@ -6,12 +6,19 @@ import uuid
 from datetime import datetime
 
 # Подключение к YDB
-ENDPOINT = "grpcs://ydb.serverless.yandexcloud.net:2135/?database=/ru-central1/b1g86rbv28go73jml91a/etnv8re60doc9qg4iglk"
-DATABASE = "/ru-central1/b1g86rbv28go73jml91a/etnv8re60doc9qg4iglk"
-
-driver = ydb.Driver(endpoint=ENDPOINT, database=DATABASE, credentials=ydb.iam.MetadataUrlCredentials())
-driver.wait(fail_fast=True, timeout=5)
-pool = ydb.SessionPool(driver)
+driver_config = ydb.DriverConfig(
+        'grpcs://ydb.serverless.yandexcloud.net:2135', '/ru-central1/b1g86rbv28go73jml91a/etnv8re60doc9qg4iglk',
+        credentials=ydb.credentials_from_env_variables(),
+        root_certificates=ydb.load_ydb_root_certificate(),
+    )
+    print(driver_config)
+    with ydb.Driver(driver_config) as driver:
+        try:
+            driver.wait(timeout=15)
+        except TimeoutError:
+            print("Connect failed to YDB")
+            print("Last reported errors by discovery:")
+            print(driver.discovery_debug_details())
 
 # Определение состояний для пошагового ввода данных
 TYPE, SUM, ACCOUNT, CATEGORY, DESIRABILITY, UNDESIRED_AMOUNT, DESCRIPTION, CONFIRM = range(8)
