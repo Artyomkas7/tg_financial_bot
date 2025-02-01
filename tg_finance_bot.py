@@ -15,7 +15,7 @@ driver_config = ydb.DriverConfig(
 print(driver_config)
 with ydb.Driver(driver_config) as driver:
     try:
-        driver.wait(timeout=20)
+        driver.wait(timeout=60)
     except TimeoutError:
         print("Connect failed to YDB")
         print("Last reported errors by discovery:")
