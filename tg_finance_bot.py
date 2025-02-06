@@ -162,7 +162,7 @@ def save_transaction(update: Update, context: CallbackContext):
 
 # Определение обработчиков диалогов
 conv_handler = ConversationHandler(
-    entry_points=[CommandHandler("start", start), MessageHandler(filters.regex("Записать операцию"), start)],
+    entry_points=[CommandHandler("start", start), MessageHandler(filters.Regex("Записать операцию"), start)],
     states={
         TYPE: [MessageHandler(filters.text, get_type)],
         SUM: [MessageHandler(filters.text, get_sum)],
@@ -171,7 +171,7 @@ conv_handler = ConversationHandler(
         DESIRABILITY: [MessageHandler(filters.text, get_desirability)],
         UNDESIRED_AMOUNT: [MessageHandler(filters.text, get_undesired_amount)],
         DESCRIPTION: [MessageHandler(filters.text, get_description)],
-        CONFIRM: [MessageHandler(filters.regex("Подтвердить"), save_transaction)],
+        CONFIRM: [MessageHandler(filters.Regex("Подтвердить"), save_transaction)],
     },
     fallbacks=[]
 )
