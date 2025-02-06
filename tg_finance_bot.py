@@ -140,7 +140,7 @@ conv_handler = ConversationHandler(
     entry_points=[MessageHandler(filters.Regex("Записать операцию"), start_transaction)],
     states={
         SELECT_TYPE: [MessageHandler(filters.Regex("^(Доход|Расход)$"), enter_amount)],
-        ENTER_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_amount)],
+        ENTER_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_amount)],  # Обработка суммы
         SELECT_ACCOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, select_account)],
         SELECT_CATEGORY: [MessageHandler(filters.TEXT & ~filters.COMMAND, select_category)],
         ENTER_DESIRABILITY: [MessageHandler(filters.TEXT & ~filters.COMMAND, enter_desirability)],
