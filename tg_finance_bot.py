@@ -1,184 +1,147 @@
-from telegram import ReplyKeyboardMarkup, Update
-from telegram.ext import Updater, CommandHandler, MessageHandler, filters, ConversationHandler, CallbackContext
+import logging
 import ydb
 import ydb.iam
-import uuid
-from datetime import datetime
+from telegram import ReplyKeyboardMarkup, ReplyKeyboardRemove, Update
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ConversationHandler
+
+# Настройка логирования
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Подключение к YDB
-driver_config = ydb.DriverConfig(
-        endpoint='grpcs://ydb.serverless.yandexcloud.net:2135',
-        database='/ru-central1/b1g86rbv28go73jml91a/etnv8re60doc9qg4iglk',
-        credentials=ydb.iam.ServiceAccountCredentials.from_file("authorized_key.json"),
-        root_certificates=ydb.load_ydb_root_certificate(),
+def create_ydb_driver():
+    driver = ydb.Driver(
+        endpoint="grpcs://ydb.serverless.yandexcloud.net:2135",
+        database="/ru-central1/b1gXXXXXXXXX/your-db",
+        credentials=ydb.iam.ServiceAccountCredentials.from_file("authorized_key.json")
     )
-print(driver_config)
-with ydb.Driver(driver_config) as driver:
-    try:
-        driver.wait(timeout=60)
-    except TimeoutError:
-        print("Connect failed to YDB")
-        print("Last reported errors by discovery:")
-        print(driver.discovery_debug_details())
-pool = ydb.SessionPool(driver)
+    driver.wait(timeout=30)
+    return driver
 
-# Определение состояний для пошагового ввода данных
-TYPE, SUM, ACCOUNT, CATEGORY, DESIRABILITY, UNDESIRED_AMOUNT, DESCRIPTION, CONFIRM = range(8)
+driver = create_ydb_driver()
+session = driver.table_client.session().create()
 
-user_data = {}
+# Этапы диалога
+SELECT_TYPE, ENTER_AMOUNT, SELECT_ACCOUNT, SELECT_CATEGORY, ENTER_DESIRABILITY, ENTER_DESCRIPTION = range(6)
 
-# Команда /start с кнопкой "Записать операцию"
-def start(update: Update, context: CallbackContext):
+# Стартовое сообщение
+async def start(update: Update, context):
     keyboard = [["Записать операцию"]]
     reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
-    update.message.reply_text("Добро пожаловать! Нажмите кнопку, чтобы начать запись операции.", reply_markup=reply_markup)
-    return TYPE
+    await update.message.reply_text("Привет! Я ваш финансовый бот. Выберите действие:", reply_markup=reply_markup)
 
-# Выбор дохода или расхода
-def get_type(update: Update, context: CallbackContext):
-    operation_type = update.message.text
-    user_data[update.message.chat_id] = {"type": operation_type}
-    update.message.reply_text("Введите сумму:")
-    return SUM
+# Начало ввода операции
+async def start_transaction(update: Update, context):
+    keyboard = [["Доход", "Расход"]]
+    reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+    await update.message.reply_text("Выберите тип операции:", reply_markup=reply_markup)
+    return SELECT_TYPE
 
-# Ввод суммы (с автоматическим знаком)
-def get_sum(update: Update, context: CallbackContext):
+# Ввод суммы
+async def enter_amount(update: Update, context):
+    context.user_data["type"] = update.message.text
+    await update.message.reply_text("Введите сумму:")
+    return ENTER_AMOUNT
+
+# Выбор счета списания
+async def select_account(update: Update, context):
     try:
         amount = float(update.message.text)
-        if user_data[update.message.chat_id]["type"] == "Расход":
-            amount = -abs(amount)
-        else:
-            amount = abs(amount)
-
-        user_data[update.message.chat_id]["amount"] = amount
-        update.message.reply_text("Выберите счет списания:", reply_markup=ReplyKeyboardMarkup(
-            [["Карта", "Наличные", "Добавить новый"]], one_time_keyboard=True))
-        return ACCOUNT
+        if context.user_data["type"] == "Расход":
+            amount = -amount
+        context.user_data["amount"] = amount
     except ValueError:
-        update.message.reply_text("Введите корректную сумму.")
-        return SUM
+        await update.message.reply_text("Ошибка! Введите числовое значение суммы.")
+        return ENTER_AMOUNT
 
-# Выбор счета
-def get_account(update: Update, context: CallbackContext):
-    account = update.message.text
-    if account == "Добавить новый":
-        update.message.reply_text("Введите название нового счета:")
-        return ACCOUNT
-    else:
-        user_data[update.message.chat_id]["account"] = account
-        update.message.reply_text("Выберите категорию:", reply_markup=ReplyKeyboardMarkup(
-            [["Еда", "Транспорт", "Добавить новую"]], one_time_keyboard=True))
-        return CATEGORY
+    # Запрос списка счетов из YDB
+    session = driver.table_client.session().create()
+    query = "SELECT name FROM accounts"
+    result_set = session.transaction().execute(query, commit_tx=True)
+    accounts = [row[0] for row in result_set[0].rows]
+
+    keyboard = [[acc] for acc in accounts] + [["Добавить новый счет"]]
+    reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+    await update.message.reply_text("Выберите счет списания:", reply_markup=reply_markup)
+    return SELECT_ACCOUNT
 
 # Выбор категории
-def get_category(update: Update, context: CallbackContext):
-    category = update.message.text
-    if category == "Добавить новую":
-        update.message.reply_text("Введите название новой категории:")
-        return CATEGORY
-    else:
-        user_data[update.message.chat_id]["category"] = category
-        update.message.reply_text("Расход желательный или нежелательный?", reply_markup=ReplyKeyboardMarkup(
-            [["Желательный", "Нежелательный"]], one_time_keyboard=True))
-        return DESIRABILITY
+async def select_category(update: Update, context):
+    context.user_data["account"] = update.message.text
 
-# Желательность расхода
-def get_desirability(update: Update, context: CallbackContext):
-    desirability = update.message.text
-    user_data[update.message.chat_id]["desirability"] = desirability
-    if desirability == "Нежелательный":
-        update.message.reply_text("Введите сумму нежелательного расхода:")
-        return UNDESIRED_AMOUNT
-    else:
-        return ask_description(update)
+    # Запрос категорий из YDB
+    session = driver.table_client.session().create()
+    query = "SELECT name FROM categories WHERE type = @type"
+    result_set = session.transaction().execute(query, {"type": context.user_data["type"]}, commit_tx=True)
+    categories = [row[0] for row in result_set[0].rows]
 
-# Ввод нежелательной суммы
-def get_undesired_amount(update: Update, context: CallbackContext):
-    try:
-        undesired_amount = float(update.message.text)
-        user_data[update.message.chat_id]["undesired_amount"] = undesired_amount
-        return ask_description(update)
-    except ValueError:
-        update.message.reply_text("Введите корректную сумму.")
-        return UNDESIRED_AMOUNT
+    keyboard = [[cat] for cat in categories] + [["Добавить новую категорию"]]
+    reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+    await update.message.reply_text("Выберите категорию:", reply_markup=reply_markup)
+    return SELECT_CATEGORY
 
-# Запрос на добавление описания
-def ask_description(update: Update):
-    update.message.reply_text("Добавить описание или оставить без описания?", reply_markup=ReplyKeyboardMarkup(
-        [["Добавить", "Без описания"]], one_time_keyboard=True))
-    return DESCRIPTION
+# Ввод желательности расхода
+async def enter_desirability(update: Update, context):
+    context.user_data["category"] = update.message.text
+    keyboard = [["Желательный", "Нежелательный"]]
+    reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+    await update.message.reply_text("Этот расход желательный или нежелательный?", reply_markup=reply_markup)
+    return ENTER_DESIRABILITY
 
 # Ввод описания
-def get_description(update: Update, context: CallbackContext):
-    description = update.message.text
-    if description == "Добавить":
-        update.message.reply_text("Введите описание:")
-        return DESCRIPTION
-    else:
-        user_data[update.message.chat_id]["description"] = ""
-        return confirm_data(update)
+async def enter_description(update: Update, context):
+    context.user_data["desirability"] = update.message.text
+    await update.message.reply_text("Введите описание или отправьте 'Без описания':")
+    return ENTER_DESCRIPTION
 
-# Подтверждение данных
-def confirm_data(update: Update):
-    chat_id = update.message.chat_id
-    data = user_data.get(chat_id, {})
+# Запись операции в YDB
+async def save_transaction(update: Update, context):
+    description = update.message.text if update.message.text != "Без описания" else None
+    user_data = context.user_data
 
-    text = f"""
-    Подтвердите данные:
-    Сумма: {data['amount']}
-    Счет: {data['account']}
-    Категория: {data['category']}
-    Желательность: {data['desirability']}
-    Нежелательная сумма: {data.get('undesired_amount', 0)}
-    Описание: {data.get('description', '')}
+    session = driver.table_client.session().create()
+    query = """
+        INSERT INTO transactions (date, amount, account, category, desirability, description)
+        VALUES (CurrentUtcDate(), @amount, @account, @category, @desirability, @description)
     """
+    session.transaction().execute(query, {
+        "amount": user_data["amount"],
+        "account": user_data["account"],
+        "category": user_data["category"],
+        "desirability": user_data["desirability"],
+        "description": description
+    }, commit_tx=True)
 
-    update.message.reply_text(text, reply_markup=ReplyKeyboardMarkup(
-        [["Подтвердить", "Отмена"]], one_time_keyboard=True))
-    return CONFIRM
-
-# Сохранение данных в YDB
-def save_transaction(update: Update, context: CallbackContext):
-    chat_id = update.message.chat_id
-    data = user_data.get(chat_id, {})
-
-    transaction_id = str(uuid.uuid4())
-    created_at = int(datetime.utcnow().timestamp() * 1_000_000)
-
-    def execute_query(session):
-        session.transaction().execute(
-            """
-            INSERT INTO transactions (user_id, transaction_id, date, amount, account, category, type, desirability, undesired_amount, description)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (chat_id, transaction_id, created_at, data['amount'], data['account'], data['category'], data['type'],
-             data['desirability'], data.get('undesired_amount', 0), data.get('description', '')),
-            commit_tx=True
-        )
-
-    pool.retry_operation_sync(execute_query)
-    update.message.reply_text("Операция сохранена!")
+    await update.message.reply_text("✅ Операция успешно записана!", reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
 
-# Определение обработчиков диалогов
+# Отмена операции
+async def cancel(update: Update, context):
+    await update.message.reply_text("Операция отменена.", reply_markup=ReplyKeyboardRemove())
+    return ConversationHandler.END
+
+# Создание приложения
+app = Application.builder().token("7697444585:AAGcna4h-eGa-89UCTfG9XL4EGI-ujj0QWs").build()
+
+# Добавление обработчиков команд
+app.add_handler(CommandHandler("start", start))
+app.add_handler(MessageHandler(filters.Regex("Записать операцию"), start_transaction))
+
+# Обработчик диалога
 conv_handler = ConversationHandler(
-    entry_points=[CommandHandler("start", start), MessageHandler(filters.Regex("Записать операцию"), start)],
+    entry_points=[MessageHandler(filters.Regex("Записать операцию"), start_transaction)],
     states={
-        TYPE: [MessageHandler(filters.Text, get_type)],
-        SUM: [MessageHandler(filters.Text, get_sum)],
-        ACCOUNT: [MessageHandler(filters.Text, get_account)],
-        CATEGORY: [MessageHandler(filters.Text, get_category)],
-        DESIRABILITY: [MessageHandler(filters.Text, get_desirability)],
-        UNDESIRED_AMOUNT: [MessageHandler(filters.Text, get_undesired_amount)],
-        DESCRIPTION: [MessageHandler(filters.Text, get_description)],
-        CONFIRM: [MessageHandler(filters.Regex("Подтвердить"), save_transaction)],
+        SELECT_TYPE: [MessageHandler(filters.Regex("^(Доход|Расход)$"), enter_amount)],
+        ENTER_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, select_account)],
+        SELECT_ACCOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, select_category)],
+        SELECT_CATEGORY: [MessageHandler(filters.TEXT & ~filters.COMMAND, enter_desirability)],
+        ENTER_DESIRABILITY: [MessageHandler(filters.TEXT & ~filters.COMMAND, enter_description)],
+        ENTER_DESCRIPTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_transaction)],
     },
-    fallbacks=[]
+    fallbacks=[CommandHandler("cancel", cancel)],
 )
 
+app.add_handler(conv_handler)
+
 # Запуск бота
-updater = Updater("7697444585:AAGcna4h-eGa-89UCTfG9XL4EGI-ujj0QWs", use_context=True)
-dp = updater.dispatcher
-dp.add_handler(conv_handler)
-updater.start_polling()
-updater.idle()
+app.run_polling()
