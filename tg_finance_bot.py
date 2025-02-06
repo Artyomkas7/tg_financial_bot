@@ -39,7 +39,16 @@ async def start_transaction(update: Update, context):
 
 # Ввод суммы
 async def enter_amount(update: Update, context):
-    context.user_data["type"] = update.message.text
+    # Получаем тип операции, выбранный пользователем
+    user_type = update.message.text
+    if user_type not in ["Доход", "Расход"]:
+        await update.message.reply_text("Ошибка! Выберите 'Доход' или 'Расход'.")
+        return SELECT_TYPE  # Вернуться на выбор типа операции
+
+    # Сохраняем тип операции в данных пользователя
+    context.user_data["type"] = user_type
+
+    # Просим ввести сумму
     await update.message.reply_text("Введите сумму:")
     return ENTER_AMOUNT
 
