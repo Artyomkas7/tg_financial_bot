@@ -164,13 +164,13 @@ def save_transaction(update: Update, context: CallbackContext):
 conv_handler = ConversationHandler(
     entry_points=[CommandHandler("start", start), MessageHandler(filters.Regex("Записать операцию"), start)],
     states={
-        TYPE: [MessageHandler(filters.text, get_type)],
-        SUM: [MessageHandler(filters.text, get_sum)],
-        ACCOUNT: [MessageHandler(filters.text, get_account)],
-        CATEGORY: [MessageHandler(filters.text, get_category)],
-        DESIRABILITY: [MessageHandler(filters.text, get_desirability)],
-        UNDESIRED_AMOUNT: [MessageHandler(filters.text, get_undesired_amount)],
-        DESCRIPTION: [MessageHandler(filters.text, get_description)],
+        TYPE: [MessageHandler(filters.Text, get_type)],
+        SUM: [MessageHandler(filters.Text, get_sum)],
+        ACCOUNT: [MessageHandler(filters.Text, get_account)],
+        CATEGORY: [MessageHandler(filters.Text, get_category)],
+        DESIRABILITY: [MessageHandler(filters.Text, get_desirability)],
+        UNDESIRED_AMOUNT: [MessageHandler(filters.Text, get_undesired_amount)],
+        DESCRIPTION: [MessageHandler(filters.Text, get_description)],
         CONFIRM: [MessageHandler(filters.Regex("Подтвердить"), save_transaction)],
     },
     fallbacks=[]
