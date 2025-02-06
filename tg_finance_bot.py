@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 def create_ydb_driver():
     driver = ydb.Driver(
         endpoint="grpcs://ydb.serverless.yandexcloud.net:2135",
-        database="/ru-central1/b1g86rbv28go73jml91a/etnv8re60doc9qg4iglk",
+        database="/ru-central1/b1gXXXXXXXXX/your-db",
         credentials=ydb.iam.ServiceAccountCredentials.from_file("authorized_key.json")
     )
     driver.wait(timeout=30)
@@ -39,7 +39,6 @@ async def start_transaction(update: Update, context):
 
 # Ввод суммы
 async def enter_amount(update: Update, context):
-    # Получаем тип операции, выбранный пользователем
     user_type = update.message.text
     if user_type not in ["Доход", "Расход"]:
         await update.message.reply_text("Ошибка! Выберите 'Доход' или 'Расход'.")
