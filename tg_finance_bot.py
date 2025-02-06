@@ -52,12 +52,12 @@ async def enter_amount(update: Update, context):
     await update.message.reply_text("Введите сумму:")
     return ENTER_AMOUNT
 
-# Выбор счета списания
-async def select_account(update: Update, context):
+# Обработка ввода суммы
+async def handle_amount(update: Update, context):
     try:
         amount = float(update.message.text)
         if context.user_data["type"] == "Расход":
-            amount = -amount
+            amount = -amount  # Если расход, то сумма отрицательная
         context.user_data["amount"] = amount
     except ValueError:
         await update.message.reply_text("Ошибка! Введите числовое значение суммы.")
@@ -74,8 +74,8 @@ async def select_account(update: Update, context):
     await update.message.reply_text("Выберите счет списания:", reply_markup=reply_markup)
     return SELECT_ACCOUNT
 
-# Выбор категории
-async def select_category(update: Update, context):
+# Выбор счета списания
+async def select_account(update: Update, context):
     context.user_data["account"] = update.message.text
 
     # Запрос категорий из YDB
@@ -89,23 +89,23 @@ async def select_category(update: Update, context):
     await update.message.reply_text("Выберите категорию:", reply_markup=reply_markup)
     return SELECT_CATEGORY
 
-# Ввод желательности расхода
-async def enter_desirability(update: Update, context):
+# Выбор категории
+async def select_category(update: Update, context):
     context.user_data["category"] = update.message.text
     keyboard = [["Желательный", "Нежелательный"]]
     reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
     await update.message.reply_text("Этот расход желательный или нежелательный?", reply_markup=reply_markup)
     return ENTER_DESIRABILITY
 
-# Ввод описания
-async def enter_description(update: Update, context):
+# Ввод желательности расхода
+async def enter_desirability(update: Update, context):
     context.user_data["desirability"] = update.message.text
     await update.message.reply_text("Введите описание или отправьте 'Без описания':")
     return ENTER_DESCRIPTION
 
-# Запись операции в YDB
-async def save_transaction(update: Update, context):
-    description = update.message.text if update.message.text != "Без описания" else None
+# Ввод описания
+async def enter_description(update: Update, context):
+    context.user_data["description"] = update.message.text if update.message.text != "Без описания" else None
     user_data = context.user_data
 
     session = driver.table_client.session().create()
@@ -118,7 +118,7 @@ async def save_transaction(update: Update, context):
         "account": user_data["account"],
         "category": user_data["category"],
         "desirability": user_data["desirability"],
-        "description": description
+        "description": user_data["description"]
     }, commit_tx=True)
 
     await update.message.reply_text("✅ Операция успешно записана!", reply_markup=ReplyKeyboardRemove())
@@ -141,11 +141,11 @@ conv_handler = ConversationHandler(
     entry_points=[MessageHandler(filters.Regex("Записать операцию"), start_transaction)],
     states={
         SELECT_TYPE: [MessageHandler(filters.Regex("^(Доход|Расход)$"), enter_amount)],
-        ENTER_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, select_account)],
-        SELECT_ACCOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, select_category)],
-        SELECT_CATEGORY: [MessageHandler(filters.TEXT & ~filters.COMMAND, enter_desirability)],
-        ENTER_DESIRABILITY: [MessageHandler(filters.TEXT & ~filters.COMMAND, enter_description)],
-        ENTER_DESCRIPTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_transaction)],
+        ENTER_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_amount)],
+        SELECT_ACCOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, select_account)],
+        SELECT_CATEGORY: [MessageHandler(filters.TEXT & ~filters.COMMAND, select_category)],
+        ENTER_DESIRABILITY: [MessageHandler(filters.TEXT & ~filters.COMMAND, enter_desirability)],
+        ENTER_DESCRIPTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, enter_description)],
     },
     fallbacks=[CommandHandler("cancel", cancel)],
 )
