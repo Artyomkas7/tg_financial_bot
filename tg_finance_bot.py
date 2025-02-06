@@ -9,7 +9,7 @@ from datetime import datetime
 driver_config = ydb.DriverConfig(
         endpoint='grpcs://ydb.serverless.yandexcloud.net:2135',
         database='/ru-central1/b1g86rbv28go73jml91a/etnv8re60doc9qg4iglk',
-        credentials=ydb.iam.MetadataUrlCredentials(),
+        credentials=ydb.iam.ServiceAccountCredentials.from_file("authorized_key.json"),
         root_certificates=ydb.load_ydb_root_certificate(),
     )
 print(driver_config)
